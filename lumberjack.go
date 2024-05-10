@@ -177,7 +177,10 @@ func (l *Logger) Close() error {
 	return l.close()
 }
 
-func (l *Logger) Init() {
+// default 2006-01-02T15-04-05.000
+func (l *Logger) Init(f string) {
+	backupTimeFormat = f
+
 	n := time.Now()
 	todayKey := n.Format(mapkeyTimeFormat)
 	tomorrow := n.AddDate(0, 0, 1)
@@ -211,11 +214,6 @@ func (l *Logger) getTodayFilecount(todayKey string) int32 {
 		}
 	}
 	return count
-}
-
-// default 2006-01-02T15-04-05.000
-func (l *Logger) UpdateBackupTimeFormat(f string) {
-	backupTimeFormat = f
 }
 
 // close closes the file if it is open.
