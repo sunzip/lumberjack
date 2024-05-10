@@ -32,6 +32,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -40,7 +41,14 @@ const (
 	defaultMaxSize = 100
 )
 
-var backupTimeFormat = "2006-01-02T15-04-05.000"
+var (
+	backupTimeFormat = "2006-01-02T15-04-05.000"
+
+	// dayNumbers map[string]*int32 = map[string]*int32{}
+	mapkeyTimeFormat = "2006-01-02"
+	// dayNumbers[20240510]=20
+	dayNumbers sync.Map
+)
 
 // ensure we always implement io.WriteCloser
 var _ io.WriteCloser = (*Logger)(nil)
@@ -169,6 +177,43 @@ func (l *Logger) Close() error {
 	return l.close()
 }
 
+func (l *Logger) Init() {
+	n := time.Now()
+	todayKey := n.Format(mapkeyTimeFormat)
+	tomorrow := n.AddDate(0, 0, 1)
+	tomorrowKey := tomorrow.Format(mapkeyTimeFormat)
+
+	count := l.getTodayFilecount(todayKey)
+
+	dayNumbers.Store(todayKey, &count)
+	dayNumbers.Store(tomorrowKey, new(int32))
+}
+
+func (l *Logger) getTodayFilecount(todayKey string) int32 {
+	var count int32 = 0
+	files, err := ioutil.ReadDir(l.dir())
+	if err != nil {
+		return count
+	}
+
+	prefix, ext := l.prefixAndExt()
+	for _, f := range files {
+		if f.IsDir() {
+			continue
+		}
+		if t, err := l.timeFromName(f.Name(), prefix, ext); err == nil && t.Format(mapkeyTimeFormat) == todayKey {
+			count++
+			continue
+		}
+		if t, err := l.timeFromName(f.Name(), prefix, ext+compressSuffix); err == nil && t.Format(mapkeyTimeFormat) == todayKey {
+			count++
+			continue
+		}
+	}
+	return count
+}
+
+// default 2006-01-02T15-04-05.000
 func (l *Logger) UpdateBackupTimeFormat(f string) {
 	backupTimeFormat = f
 }
@@ -259,8 +304,16 @@ func backupName(name string, local bool) string {
 		t = t.UTC()
 	}
 
+	// 按天内递增
+	todayKey := t.Format(mapkeyTimeFormat)
+
+	v, _ := dayNumbers.LoadOrStore(todayKey, new(int32))
+	number := v.(*int32)
+
+	n := atomic.AddInt32(number, 1)
+
 	timestamp := t.Format(backupTimeFormat)
-	return filepath.Join(dir, fmt.Sprintf("%s-%s%s", prefix, timestamp, ext))
+	return filepath.Join(dir, fmt.Sprintf("%s-%s.%d%s", prefix, timestamp, n, ext))
 }
 
 // openExistingOrNew opens the logfile if it exists and if the current write
