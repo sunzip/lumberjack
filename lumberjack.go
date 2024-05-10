@@ -30,6 +30,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -177,7 +178,7 @@ func (l *Logger) Close() error {
 	return l.close()
 }
 
-// default 2006-01-02T15-04-05.000
+// backupTimeFormat default 2006-01-02T15-04-05.000
 func (l *Logger) Init(f string) {
 	backupTimeFormat = f
 
@@ -186,13 +187,14 @@ func (l *Logger) Init(f string) {
 	tomorrow := n.AddDate(0, 0, 1)
 	tomorrowKey := tomorrow.Format(mapkeyTimeFormat)
 
-	count := l.getTodayFilecount(todayKey)
+	todayFileName := n.Format(backupTimeFormat)
+	count := l.getTodayFileMaxnumber(todayFileName)
 
 	dayNumbers.Store(todayKey, &count)
 	dayNumbers.Store(tomorrowKey, new(int32))
 }
 
-func (l *Logger) getTodayFilecount(todayKey string) int32 {
+func (l *Logger) getTodayFileMaxnumber(todayFileName string) int32 {
 	var count int32 = 0
 	files, err := ioutil.ReadDir(l.dir())
 	if err != nil {
@@ -200,17 +202,24 @@ func (l *Logger) getTodayFilecount(todayKey string) int32 {
 	}
 
 	prefix, ext := l.prefixAndExt()
+
 	for _, f := range files {
 		if f.IsDir() {
 			continue
 		}
-		if t, err := l.timeFromName(f.Name(), prefix, ext); err == nil && t.Format(mapkeyTimeFormat) == todayKey {
-			count++
-			continue
-		}
-		if t, err := l.timeFromName(f.Name(), prefix, ext+compressSuffix); err == nil && t.Format(mapkeyTimeFormat) == todayKey {
-			count++
-			continue
+		if strings.Contains(f.Name(), todayFileName) {
+			if t, err := l.numberFromName(f.Name(), prefix, ext); err == nil {
+				if t > count {
+					count = t
+				}
+				continue
+			}
+			if t, err := l.numberFromName(f.Name(), prefix, ext+compressSuffix); err == nil {
+				if t > count {
+					count = t
+				}
+				continue
+			}
 		}
 	}
 	return count
@@ -494,7 +503,25 @@ func (l *Logger) timeFromName(filename, prefix, ext string) (time.Time, error) {
 		return time.Time{}, errors.New("mismatched extension")
 	}
 	ts := filename[len(prefix) : len(filename)-len(ext)]
+	// "2024-05-10.1"
+	i := strings.LastIndex(ts, ".")
+	ts = ts[:i]
 	return time.Parse(backupTimeFormat, ts)
+}
+
+func (l *Logger) numberFromName(filename, prefix, ext string) (int32, error) {
+	if !strings.HasPrefix(filename, prefix) {
+		return 0, errors.New("mismatched prefix")
+	}
+	if !strings.HasSuffix(filename, ext) {
+		return 0, errors.New("mismatched extension")
+	}
+	ts := filename[len(prefix) : len(filename)-len(ext)]
+	// "2024-05-10.1"
+	i := strings.LastIndex(ts, ".")
+	ts = ts[i:]
+	number, err := strconv.Atoi(ts)
+	return int32(number), err
 }
 
 // max returns the maximum size in bytes of log files before rolling.
