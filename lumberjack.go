@@ -519,7 +519,11 @@ func (l *Logger) numberFromName(filename, prefix, ext string) (int32, error) {
 	ts := filename[len(prefix) : len(filename)-len(ext)]
 	// "2024-05-10.1"
 	i := strings.LastIndex(ts, ".")
-	ts = ts[i:]
+	if len(ts) >= i+1 {
+		ts = ts[i+1:]
+	} else {
+		return 0, nil
+	}
 	number, err := strconv.Atoi(ts)
 	return int32(number), err
 }
